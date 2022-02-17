@@ -1,0 +1,67 @@
+name: Build QMK Firmware
+on:
+  schedule:
+  - cron: '0 10 * * *'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: qmkfm/qmk_cli
+    strategy:
+      fail-fast: false
+      matrix:
+        keymap:
+        - default
+        range:
+        - 0-9a-b
+        - c-e
+        - f-h
+        - i-l
+        - m-q
+        - r-z
+
+    steps:
+    - name: Disable safe.directory check
+      run : git config --global --add safe.directory '*'
+
+    - name: Checkout QMK
+      uses: actions/checkout@v4
+      with:
+        repository: qmk/qmk_firmware
+        ref: develop
+        submodules: true
+
+    - name: Build ${{ matrix.keymap }} keymaps
+      continue-on-error: true
+      run: qmk mass-compile $(qmk find -km ${{ matrix.keymap }} | grep '^[${{ matrix.range }}]') -j $(nproc)
+
+    - name: Sort output
+      shell: bash
+      run: |
+        for file in *.hex *.bin *.uf2
+        do
+          DIR=fw_output/$(echo $file | cut -d'_' -f1)
+          if [ -f "$file" ] 
+          then
+            mkdir -p "$DIR"
+            mv -v "$file" "$DIR/"
+          fi
+        done
+
+    - name: Archive ${{ matrix.keymap }} firmware
+      uses: actions/upload-artifact@main
+      continue-on-error: true
+      with:
+        name: output_${{ matrix.keymap }}_${{ matrix.range }}
+        path: fw_output/
+        retention-days: 1
+
+  upload:
+    needs: build
+    uses: filterpaper/scripts/.github/workflows/commit-artifact.yml@main
+
+  purge:
+    needs: build
+    uses: filterpaper/scripts/.github/workflows/purge-workflow.yml@main
+

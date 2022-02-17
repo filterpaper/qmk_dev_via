@@ -1,34 +1,59 @@
-name: Build QMK VIA
-on: [workflow_dispatch]
+name: Build QMK Firmware
+on:
+  schedule:
+  - cron: '0 12 * * *'
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    container: qmkfm/base_container
+    container: qmkfm/qmk_cli
+    strategy:
+      fail-fast: false
+      matrix:
+        keymap:
+        - via
+        - default
 
     steps:
+    - name: Disable safe.directory check
+      run : git config --global --add safe.directory '*'
 
     - name: Checkout QMK
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
       with:
         repository: qmk/qmk_firmware
         ref: develop
-        fetch-depth: 1
-        persist-credentials: false
-        submodules: recursive
+        submodules: true
 
-    - name: Build VIA firmware
+    - name: Build ${{ matrix.keymap }} keymaps
+      continue-on-error: true
+      run: qmk -v mass-compile -j3 -km ${{ matrix.keymap }}
+
+    - name: Sort output
+      shell: bash
       run: |
-        qmk multibuild -j4 -kb crkbd/rev1 -km via
+        for file in *.hex *.bin *.uf2; do
+          DIR=fw_output/$(echo $file | cut -d'_' -f1)
+          [ -f "$file" ] && (mkdir -p "$DIR"; mv -v "$file" "$DIR/") || true
+        done
 
-    - name: Upload Binaries
-      uses: actions/upload-artifact@v2
+    - name: Archive ${{ matrix.keymap }} firmware
+      uses: actions/upload-artifact@v3
+      continue-on-error: true
       with:
-        name: Artifacts
-        path: |
-          failures.log
+        name: fw_output
+        path: fw_output/
+        retention-days: 1 
 
-    - name: Commit
-      uses: stefanzweifel/git-auto-commit-action@v4
-      with:
-        commit_message: Nightly Build
+  upload:
+    needs: build
+    uses: filterpaper/scripts/.github/workflows/commit-artifact.yml@main
+    with:
+      artifact_name: fw_output
+      artifact_folder: .
+
+  purge:
+    needs: build
+    uses: filterpaper/scripts/.github/workflows/purge-workflow.yml@main
+

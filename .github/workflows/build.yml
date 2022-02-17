@@ -1,0 +1,34 @@
+name: Build QMK VIA
+on: [workflow_dispatch]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: qmkfm/base_container
+
+    steps:
+
+    - name: Checkout QMK
+      uses: actions/checkout@v2
+      with:
+        repository: qmk/qmk_firmware
+        ref: develop
+        fetch-depth: 1
+        persist-credentials: false
+        submodules: recursive
+
+    - name: Build VIA firmware
+      run: |
+        qmk multibuild -j4 -kb crkbd/rev1 -km via
+
+    - name: Upload Binaries
+      uses: actions/upload-artifact@v2
+      with:
+        name: Artifacts
+        path: |
+          failures.log
+
+    - name: Commit
+      uses: stefanzweifel/git-auto-commit-action@v4
+      with:
+        commit_message: Nightly Build
